@@ -14,9 +14,12 @@ Interaction based on dyadic_interaction_p2p.
  */
 
 //needed for submission by redirect at end
-var PROLIFIC_COMPLETION_CODE = "29FA6030"; 
+var PROLIFIC_COMPLETION_CODE = "XXXXXXXX"; 
 
 //port for the server running the turn-taking procedure
+//this assumes a particular naming convention we use for secure web socket ports
+//at Edinburgh, you may need to tweak this and the place it is used 
+//in dyadic_interaction_utilities.js
 var main_port_number = "ws25"; 
 
 //maximum number of errors in warmup trials - more than this leads to non-progression
@@ -26,7 +29,7 @@ var max_warmup_errors = 1;
 var max_colour_errors = 0;
 
 //max wait to be paired, in minutes
-var max_wait = 5; //KENNY
+var max_wait = 5; 
 
 //to show progres and check progression criteria at crucial points
 var PROGRESSION_COUNTER = { current_trial: 1, max_trial: 0, correct: 0 }; 
@@ -426,7 +429,7 @@ function end_waiting() {
       jsPsych.finishTrial();
       jsPsych.endCurrentTimeline();//this kills the rest of the waiting room timeline
     } else if (
-      //KENNY check if we need this - I don't think we do
+      //KENNY check if we need this - I don't think we do, but it does little harm
       current_trial.type == "image-button-response" && //director trial
       current_trial.choices.length == 1
     ) {
