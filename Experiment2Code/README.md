@@ -1,0 +1,1 @@
+shapes_interaction_b2 contains the experiment reported as Experiment 2 in Smith, Bowerman & Smith (in prep), where participants go through 2 extension blocks (coloured splats, then either coloured shapes, objects, or emotions). "_bs" in the name derives from the fact that extensions which were within-subjects in Experiment 1 are between-subjects in Experiment 2.
