@@ -1,0 +1,1 @@
+shapes_interaction contains the experiment reported in the 2022 CogSci proceedings paper, where participants go through 4 extension blocks (coloured splats, coloured shapes, objects, emotions), and as Experiment 1 in the full paper.

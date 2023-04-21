@@ -1,1 +1,0 @@
-shapes_interaction contains the experiment reported in the proceedings paper, where participants go through 4 extension blocks (coloured splats, coloured shapes, objects, emotions).
