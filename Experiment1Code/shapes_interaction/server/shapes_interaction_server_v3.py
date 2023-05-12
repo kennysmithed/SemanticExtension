@@ -215,11 +215,11 @@ def send_message_by_id(client_id,message):
     print("sending",client_id,message)
     print("last heard from",global_participant_data[client_id]['lastHeardFrom'])
     if time.time()-global_participant_data[client_id]['lastHeardFrom']>max_timediff_before_timeout:
-    	print('not heard from, disconnecting')
-    	client_left(client,server)
+        print('not heard from, disconnecting')
+        client_left(client,server)
     else:
-    	print('sending')
-    	server.send_message(client,json.dumps(message))
+        print('sending')
+        server.send_message(client,json.dumps(message))
 	    
 
 # Checks that all clients listed in list_of_ids are still connected to the server -
@@ -340,7 +340,7 @@ def enter_phase(client_id,phase):
         print(client_id, "entering PairParticipants")
         #send message to the client sending them to waiting room
         #NB we always send them to the waiting room so we can have a uniform treatment at the client 
-        #end regardless of whether they had 0 waiti time or not
+        #end regardless of whether they had 0 waiting time or not
         send_message_by_id(client_id,{"command_type":"WaitingRoomPairing"})
         unpaired_clients.append(client_id) #add to the unpaired clients list
         # If they can be immediately paired, do so and progress to next phase
@@ -363,12 +363,12 @@ def enter_phase(client_id,phase):
             # Select random shapes for this pair
             this_pair_shapes = random.sample(all_shapes,n_shapes_per_pair)
             
-            #random condition
-            #this_pair_condition = random.choice(["fixed_associations","random_associations"])
-            #give out only one condition
-            this_pair_condition = random.choice(["fixed_associations"])
+            #give out random condition
+            this_pair_condition = random.choice(["fixed_associations","random_associations"])
+            #can give out only one condition like this
+            #this_pair_condition = random.choice(["fixed_associations"])
             #this_pair_condition = random.choice(["random_associations"])
-            #give out fixed more than random (11/1/22, rebalancing a bit)
+            #can give out fixed more than random (for rebalancing a bit)
             #this_pair_condition = random.choice(["fixed_associations","fixed_associations","random_associations"])
             
             print(this_pair_condition)
@@ -584,9 +584,6 @@ def handle_director_response(director_id,director_response):
         send_message_by_id(matcher_id,instruction_string)
 
 # When the matcher responds with their guess, we need to send feedback to matcher + director.
-# In this experiment the feedback includes information on success/failure, but also some more
-# detailed info on what common guesses and the best possible clue word would have been - these
-# are just set to ??? here, since the code for that is still to be written!
 # Both clients are sent a feedback command: command_type F, then multiple pieces of info including
 # score, the intended target, the clue provided, etc etc
 def handle_matcher_response(matcher_id,matcher_response):
@@ -603,7 +600,6 @@ def handle_matcher_response(matcher_id,matcher_response):
             break_option = 'true'
         else:
             break_option = 'false'
-        #info on the clue the director provided and the matcher's guess are included in the matcher's response
         guess = matcher_response['response']
         if target==guess:
             score=1
@@ -654,10 +650,9 @@ def swap_roles_and_progress(client_id):
 ### Instructions between blocks
 ####################
 
-# Fairly simple, just send over a command_typ I message to the client, with instructon_type set to "Interaction"
+# Fairly simple, just send over a command_type Instructions message to the client, with instructon_type set to "Interaction"
 def send_instructions(client_id,phase):
     if phase=='Interaction':
-        #send over room code to trigger streaming audio setup
         pair_id = global_participant_data[client_id]['pair_id']
         send_message_by_id(client_id,{"command_type":"PairID","pair_id":pair_id})
         #set role
@@ -668,7 +663,7 @@ def send_instructions(client_id,phase):
 ### Start up server
 #######################
 
-PORT=9025 #this will run on port 9009
+PORT=9025 #this will run on port 9025
 
 #standard stuff here from the websocket_server code
 print('starting up')
