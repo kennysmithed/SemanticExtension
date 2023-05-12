@@ -3,7 +3,8 @@
 /******************************************************************************/
 
 /*
-Interaction based on dyadic_interaction_p2p.
+The guts of the client side of the experiment - communicates with the server and
+displays appropriate content (as directed by the server) to the participant.
 */
 
 /******************************************************************************/
@@ -11,6 +12,7 @@ Interaction based on dyadic_interaction_p2p.
 /******************************************************************************/
 
 /*
+Try to consistently use capitals in global variable names, just to make them easier to spot.
  */
 
 //needed for submission by redirect at end
@@ -536,7 +538,9 @@ function end_experiment(exit_mode) {
 }
 
 /*
-This could collect more general demographics info, but at present it's just a comments box.
+This could collect more general demographics info, but since we don't really need that 
+and could get basic demographics from prolific if required, it's just an opportunity to 
+confess to taking written notes plus a comments box.
 */
 function demographics(exit_mode) {
   if (exit_mode == "clean") {
@@ -704,133 +708,6 @@ function director_trial(
   jsPsych.resumeExperiment();
 }
 
-/*
-Not using this looping one
-*/
-
-function director_trial_looping(
-  target_object,
-  context_array,
-  label_choices,
-  interaction_block_n,
-  trial_n,
-  max_trial_n,
-  partner_id
-) {
-  end_waiting();
-
-  //add DELETE and SEND buttons
-  var buttons = label_choices.concat(["DELETE","SEND"])
-
-  var building_label = []; //store the components of the building label here
-  var continue_production_loop = true; //use this to control the production loop
-
-  var role_trial = {
-    type: "html-keyboard-response",
-    stimulus: function() {
-      return "<p>You are SENDER</p>"
-    },
-    choices: jsPsych.NO_KEYS,
-    trial_duration: 1000,
-  };
-
-  //define what a single production trial looks like - this will loop
-  var single_production_trial = {
-    //type: "image-button-response-promptabovebuttons",
-    type: "html-button-response-twoprompts",
-    stimulus: function() {
-      var stimulus_string = ""
-      for (context_item of context_array) {
-        var style_string = "style='border:10px solid white;'"
-        if (context_item==target_object) { //target gets a green box
-          style_string = "style='border:10px solid green;'"
-        }
-
-        stimulus_string = stimulus_string + "<img src=images/" + context_item + ".png width=200px " + style_string + " >"
-      
-      }
-      return stimulus_string
-    },
-    stimulus_height: 150,
-    choices: buttons,
-    button_html:
-    '<button class="jspsych-btn"> <img src="images/%choice%.png" width=100px></button>',
-    //show the building label in the prompt
-    prompt1: function () {
-        return "<p><em>Build a message and send to your partner (" + trial_n + "/" + max_trial_n + ")</em></p>";
-      },
-    prompt2: function () {
-      //if bulding label = [], dummy prompt
-      if (building_label.length==0) {
-        return "<img src=images/blank.png width=150px>"
-      }
-      //otherwise, paste together images in building_label into a single stinng
-      else {
-        var prompt2_string = ""
-      for (signal_item of building_label) {
-        prompt2_string = prompt2_string + "<img src=images/" + signal_item + ".png width=75px >"
-      
-      }
-
-        return prompt2_string;
-      }
-    },
-    //after the participant clicks, what happens depends on what they clicked
-    on_finish: function (data) {
-      //figure out what button they clicked using buttons and data.response
-      var button_pressed = buttons[data.response];
-      //if they clicked DONE
-      if (button_pressed == "SEND") {
-        //only end the loop if they have produced *something*
-        if (building_label.length > 0) {
-          var final_label = building_label.join("-");
-          data.label = final_label;
-          data.block_n = interaction_block_n;
-          data.trial_n = trial_n;
-          data.partner_id = partner_id; //add this to data so it is saved to data file
-          data.object = target_object;
-          data.label = final_label;
-          data.exp_trial_type = "director"; //mark it as production data
-          save_al_data(data); //save the data (which will include the built label)
-          continue_production_loop = false; //break out of the loop
-          var message = {response_type: "RESPONSE",
-                          participant: PARTICIPANT_ID,
-                          partner: partner_id,
-                          role: "Director",
-                          target_object:target_object,
-                          response: building_label}
-          send_to_server(message)
-          jsPsych.pauseExperiment();
-      
-        }
-      }
-      //if they clicked DELETE, just delete the last syllable from building_label
-      //which can be done using slice
-      else if (button_pressed == "DELETE") {
-        building_label = building_label.slice(0, -1);
-      }
-      //otherwise they must have clicked a syllable button, so just add that
-      //to the building label
-      else {
-        building_label.push(button_pressed);
-      }
-    },
-  };
-  //slot single_production_trial into a loop
-  var production_loop = {
-    timeline: [single_production_trial],
-    loop_function: function () {
-      return continue_production_loop; //keep looping until continue_production_loop=false
-    },
-  };
-
-    
-
-  //want to add role_trial seperately and in a flat structure, so the loop doesn't include that
-  jsPsych.addNodeToEndOfTimeline(role_trial);
-  jsPsych.addNodeToEndOfTimeline(production_loop);
-  jsPsych.resumeExperiment();
-}
 
 /******************************************************************************/
 /*** Matcher (object selection) trials ****************************************/
@@ -854,7 +731,7 @@ function matcher_trial(
     type: "html-button-response-twoprompts",
     stimulus: function() {
       var stimulus_string = "<p>Message from partner:</p>"
-      for (signal_item of director_label) {
+      for (signal_item of director_label) {//can in principle handle multi-item messages
         stimulus_string = stimulus_string + "<img src=images/" + signal_item + ".png width=150px >"
       }
       return stimulus_string;

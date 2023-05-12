@@ -36,7 +36,8 @@ function interaction_loop() {
   //the server needs to know PARTICIPANT_ID, which is a unique identifier for this
   //participant
 
-  //send an intermittent Ping to the server
+  // send an intermittent ping to the server - we found this reduces spontaneous disconnections in 
+  // interaction experiments, particularly in 3+ player experiments, but using it here too
   var timerID = 0;
   var timeout = 5000
 	function keepAlive() {
@@ -163,7 +164,6 @@ function handle_server_command(command_code,command) {
         //to run a director trial we need some extra information, included in
         //the command dictionary (target_object and partner_id) - retrieves these
         //and runs director_trial(...) to get the director's response
-        
         director_trial(command.target_meaning,
           command.context_array,
           command.label_choices,
