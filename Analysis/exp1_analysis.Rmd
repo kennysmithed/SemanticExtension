@@ -1,0 +1,656 @@
+---
+title: "Exp 1 analysis"
+author: "Kenny Smith"
+date: "18/12/2023"
+output: html_document
+---
+
+This builds from the analysis for Bowerman & Smith (2022) in CogSci proceedings.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2) #for plots
+library(lme4) #for stats
+set.seed(21032023) #setting seed (to a date while working on the code) to allow replication of distance zscore plots.
+
+my.colours <- c("#006DE9","#EA7D00")
+```
+
+
+# Data loading etc
+
+Read in anonymised data - clean-up has been done during the anonymisation process, so only participants with valid data who did not take notes etc is included here.
+```{r}
+data <- read.csv("data/exp1_data_anonymised.csv")
+```
+
+## Number of pairs per condition
+
+Quick look at number of remaining pairs per condition.
+
+```{r}
+plyr::ddply(data,~condition,plyr::summarise,Current_N=length(unique(pair_id)))
+```
+
+# Plots and stats
+
+## Plots and stats of success vs block
+
+Score is recorded only on matcher trials so can discard the director trials for the score analyses.
+
+```{r}
+matcher_data <- subset(data,exp_trial_type=='matcher')
+```
+
+Score=1 on trials where the matcher succesfully selected the target, score=0 otherwise.
+
+Plotting by-pair average score (i.e. proportion of score=1 trials) per block. I want a dotplot so we can individual pairs. 
+
+```{r, echo=FALSE}
+pair_means_per_block <- aggregate(data=matcher_data,score~block_n+condition+pair_id,FUN=mean)
+#need block_n as a factor for the dotplot
+pair_means_per_block$block_n_as_factor <- factor(pair_means_per_block$block_n)
+pair_means_per_block$named_block_n <- plyr::revalue(pair_means_per_block$block_n_as_factor,
+                                              c("0"="White Shapes",
+                                                "1"="Shapes",
+                                                "2"="Coloured\nSplats",
+                                                "3"="Coloured\nShapes",
+                                                "4"="Objects",
+                                                "5"="Emotions"))
+
+pair_means_per_block$named_condition <- plyr::revalue(pair_means_per_block$condition,
+                                              c("fixed_associations"="Fixed Associations",
+                                                "random_associations"="Random Associations"))
+
+ggplot(data=pair_means_per_block) +
+  facet_grid(~named_condition) +
+  stat_summary(aes(x=named_block_n, y=score),geom='point', fun='mean', colour='black',fill='black',size=2, shape=23) +
+  stat_summary(aes(x=named_block_n, y=score),geom='errorbar', fun.data='mean_cl_boot',fun.min="min", fun.max="max",width=0.2) +
+  geom_dotplot(aes(x=named_block_n, y=score, fill=condition),binaxis='y',stackdir="center", binwidth = .025, binpositions='all', dotsize=0.5, alpha=0.5) +
+  scale_fill_manual(values=my.colours) +
+  theme(legend.position = "none") +
+  theme_bw() +
+  theme(axis.title.x = element_blank()) +
+  ylab("Proportion of succesful trials")
+```
+
+Same plot just showing block 2 onwards, since all the points clustered at 1 in block 1 makes it a bit hard to see what's happening in block 2!
+
+```{r, echo=FALSE}
+ggplot(data=subset(pair_means_per_block,block_n>=2)) +
+  facet_grid(~named_condition) +
+  stat_summary(aes(x=named_block_n, y=score),geom='point', fun='mean', colour='black',fill='black',size=2, shape=23) +
+  stat_summary(aes(x=named_block_n, y=score),geom='errorbar', fun.data='mean_cl_boot',fun.min="min", fun.max="max",width=0.2) +
+  #there should be 64 trials per block, so bin size of 1/64 would make sense, but 1/32 is a bit easier on the eye
+  geom_dotplot(aes(x=named_block_n, y=score, fill=named_condition),binaxis='y',stackdir="center", binwidth = 1/32,binpositions='all', dotsize=0.6,alpha=0.5) +
+  #chance is 1 in 3
+  geom_hline(yintercept=1/3, linetype="dashed") +
+  theme_bw() +
+  scale_fill_manual(values=my.colours) +
+  theme(legend.position = "none") +
+  theme(axis.title.x = element_blank()) +
+  ylab("Proportion of succesful trials") 
+
+ggsave("figures/exp1_success_block.pdf", width=6, height=4) 
+```
+
+Given the very high performance, it should be sufficient to report that mean in blocks 0 (white shapes) and 1 (trivial shapes) is high.
+
+Block 0.
+```{r}
+mean(subset(pair_means_per_block,block_n==0)$score)
+stem(subset(pair_means_per_block,block_n==0)$score)
+```
+Block 1.
+```{r}
+mean(subset(pair_means_per_block,block_n==1)$score)
+stem(subset(pair_means_per_block,block_n==1)$score)
+```
+
+
+Key stat - are there effects of condition on score? We care about block 2 (splats) onwards. We predict particularly an effect at block 2 (the splats block), so want to get that straightforwardly from our analysis. We'd also like to know if the scores change over blocks, and whether this differ between conditions. 
+
+```{r}
+matcher_data_block2on <- subset(matcher_data,block_n>=2)
+matcher_data_block2on$block_n_factor <- as.factor(matcher_data_block2on$block_n)
+matcher_data_block2on$condition_factor <- as.factor(matcher_data_block2on$condition)
+contrasts(matcher_data_block2on$condition_factor) <- contr.sum(2)
+```
+
+Basic model with block dummy-coded - shows that the conditions differ at block 2, and that all subsequent blocks have higher accuracy than block 2; no condition * block interaction, so basically the random_association guys start lower and (according to this) stay lower, although you can see from the coefficients for later blocks that the difference is narrowing.
+```{r}
+#fails to converge with default settings, so using bobyqa and more iterations
+score_model <- glmer(score~block_n_factor*condition_factor + (1 + block_n_factor | pair_id),data=matcher_data_block2on,family='binomial',control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+
+summary(score_model)
+```
+
+Same analysis with successive difference coding for block - this will show us block-to-block changes. NB the main effect of condition here is over all blocks (because of the way successive difference coding works), and the levels of the block factor are:
+
+"2-1" is block 2 to block 3
+"3-2" is block 3 to block 4
+"4-3" is block 4 to block 5
+
+This suggests that there is significant improvement from block 2 to block 3, and from 3 to 4, but no interaction with condition. Note that the main effect of condition here is over all blocks, because of the way successive difference coding for block works. 
+
+```{r}
+matcher_data_block2on$block_n_factor_sdif <- matcher_data_block2on$block_n_factor
+contrasts(matcher_data_block2on$block_n_factor_sdif) <- MASS::contr.sdif(4)
+score_model_sdif <- glmer(score~block_n_factor_sdif*condition_factor + (1 + block_n_factor_sdif | pair_id),data=matcher_data_block2on,family='binomial',control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+
+summary(score_model_sdif)
+```
+
+## Plots and stats of success over block and trial per block
+
+Timecourses are useful, but to do these sensibly we need to convert trial_n (which is overall trial number) to something more meaningful, specifically trial number *in a given block*. Since there is some variability in trial number depending on what participants did on the warm-up trials, need to work out per-pair the lowest trial number per block and then subtract that from the raw trial numbers.
+
+```{r}
+adjusted_trial_n_df <- NULL
+for (p in unique(matcher_data$pair_id)) {
+  this_p_data <- subset(matcher_data,pair_id==p)
+  for (b in unique(this_p_data$block_n)) {
+    this_b_data <- subset(this_p_data,block_n==b)
+    first_trial_n <- min(this_b_data$trial_n)
+    this_df <- data.frame("pair_id"=p,
+               "block_n"=b,
+               "trial_n"=this_b_data$trial_n,
+               "trial_n_in_block"=this_b_data$trial_n-first_trial_n)
+    adjusted_trial_n_df <- rbind(adjusted_trial_n_df,this_df)
+  }
+}
+
+#merge to get the adjusted trial numbers.
+matcher_data <- merge(matcher_data,adjusted_trial_n_df,by=c("pair_id","block_n","trial_n"))
+```
+
+Plot the timecourses - note I am plotting the mean of all pairs here (since the individual pairs either succeed or fail on any given trial, so those are not informative) plus bootstrepped CIs, and focussing only on blocks 2 (splats) onwards. 
+
+```{r, echo=FALSE}
+#add some columns for plotting
+matcher_data$named_block_n <- plyr::revalue(factor(matcher_data$block_n),
+                                              c("0"="White Shapes",
+                                                "1"="Shapes",
+                                                "2"="Coloured Splats",
+                                                "3"="Coloured Shapes",
+                                                "4"="Objects",
+                                                "5"="Emotions"))
+
+matcher_data$named_condition <- plyr::revalue(matcher_data$condition,
+                                              c("fixed_associations"="Fixed Associations",
+                                                "random_associations"="Random Associations"))
+matcher_data$trial_n_in_block_plus <- matcher_data$trial_n_in_block + 1
+
+ggplot(data=subset(matcher_data,block_n>=2)) +
+  facet_grid(named_condition~named_block_n) +
+  stat_summary(aes(x=trial_n_in_block_plus, y=score, group=1,colour=condition),geom="line", fun=mean) +
+  stat_summary(aes(x=trial_n_in_block_plus, y=score,colour=condition),geom='errorbar', fun.data='mean_cl_boot',fun.min="min", fun.max="max",width=0.2) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  #chance is 1 in 3
+  geom_hline(yintercept=1/3, linetype="dashed") +
+  theme_bw() +
+  theme(legend.position = "none") +
+  xlab("Trial number") +
+  ylab("Proportion of succesful trials") +
+  scale_colour_manual(values=my.colours) +
+  scale_x_continuous(breaks=c(1,8,16,24,32))
+
+ggsave("figures/exp1_success_by_trial.pdf", width=6, height=4)
+``` 
+
+The question with the stats here is: is there a 3-way interaction between condition, block and trial number? Easiest way to find out is to compare models and do a likelihood ratio test (to avoid trying to work out the right kind of contrasts for block which would allow me to answer this question!), which suggests a marginal interaction. 
+```{r, cache=TRUE}
+#need to re-run these since we have added the per-block trial numbers to matcher_data
+matcher_data_block2on <- subset(matcher_data,block_n>=2)
+matcher_data_block2on$block_n_factor <- as.factor(matcher_data_block2on$block_n)
+matcher_data_block2on$condition_factor <- as.factor(matcher_data_block2on$condition)
+contrasts(matcher_data_block2on$condition_factor) <- contr.sum(2)
+
+#also need to scale and centre trial_n to ease convergence issues - setting so 0=-1, 31=1
+matcher_data_block2on$trial_n_in_block_scaled_centred <- (matcher_data_block2on$trial_n_in_block-15.5)/15.5
+
+score_model_trialn <- glmer(score~block_n_factor*condition_factor*trial_n_in_block_scaled_centred + (1 + block_n_factor * trial_n_in_block_scaled_centred | pair_id),data=matcher_data_block2on,family='binomial',control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+
+score_model_trialn_minus <- glmer(score~block_n_factor*condition_factor*trial_n_in_block_scaled_centred -block_n_factor:condition_factor:trial_n_in_block_scaled_centred + (1 + block_n_factor * trial_n_in_block_scaled_centred | pair_id),data=matcher_data_block2on,family='binomial',control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+
+anova(score_model_trialn,score_model_trialn_minus)
+```
+
+Post-hocs: are there condition x trial number interactions at each block? These suggest marginal interactions at block 2 (which is clear in the graph) and block 5 (the fixed association people go up faster and reach a slightly higher level).
+
+Block 2 (coloured splats):
+```{r}
+score_model_trialn_block2 <- glmer(score~condition_factor*trial_n_in_block_scaled_centred + (1 + trial_n_in_block_scaled_centred | pair_id),data=subset(matcher_data_block2on,block_n==2),family='binomial',control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+summary(score_model_trialn_block2)
+```
+
+Block 3 (coloured shapes):
+```{r}
+score_model_trialn_block3 <- glmer(score~condition_factor*trial_n_in_block_scaled_centred + (1 + trial_n_in_block_scaled_centred | pair_id),data=subset(matcher_data_block2on,block_n==3),family='binomial',control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+summary(score_model_trialn_block3)
+```
+
+Block 4 (objects):
+```{r}
+score_model_trialn_block4 <- glmer(score~condition_factor*trial_n_in_block_scaled_centred + (1 + trial_n_in_block_scaled_centred | pair_id),data=subset(matcher_data_block2on,block_n==4),family='binomial',control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+summary(score_model_trialn_block4)
+```
+
+Block 5 (emotions):
+```{r}
+score_model_trialn_block5 <- glmer(score~condition_factor*trial_n_in_block_scaled_centred + (1 + trial_n_in_block_scaled_centred | pair_id),data=subset(matcher_data_block2on,block_n==5),family='binomial',control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+summary(score_model_trialn_block5)
+```
+
+## Are extensions made predicted?
+
+*NB This is simpler than the matrix distance measure used in Bowerman & Smith (2022), and matches a KL-divergence measure which is a more elegant version of the Bowerman & Smith analysis (thanks to Matt Spike for suggesting KL-divergence). We include the KL-divergence measure below.* 
+
+We have a prediction for how people will extend their labels from block to block, and we can just score trials based on whether they match that prediction (1 = extended as predicted, 0 = not extended as predicted). For the fixed condition extending from Shapes to Coloured Splats this is particularly obvious - e.g. if Square is used all the time with Grey (Square) in the Shapes block, then Square should also be used to convey Grey (Splat) in the Coloured Splats block. For the random condition we can make the prediction based in frequency, and select randomly in the case of ties.
+
+Data prep for doing the analysis.
+```{r}
+get_target_colour <- function(target_object) {
+  strsplit(as.character(target_object),"_")[[1]][2]
+}
+
+get_target_shape <- function(target_object) {
+  strsplit(as.character(target_object),"_")[[1]][1]
+}
+
+#shapes and colours are always separated by an underscore, so we can check for that
+get_key_feature <- function(target_object) {
+  if (grepl('_',as.character(target_object))) {
+    get_target_colour(target_object)
+  }
+  else {as.character(target_object)}
+}
+
+director_data <- subset(data,exp_trial_type=='director' & block_n>0)
+#need to extract colour, object or shape from the object column.
+director_data$key_feature <- mapply(function(target) get_key_feature(target),
+                                                   director_data$object)
+#need to set up the levels of the key feature so that when we tabulate within a block we always get 
+#the desired order of levels across blocks
+director_data$key_feature <- factor(director_data$key_feature,levels=c("grey","pink","red","yellow",
+                                                      "city","pig","volcano","banana",
+                                                      "sad","inlove","angry","happy"))
+#pair and label also needs to be factor
+director_data$pair_id <- factor(director_data$pair_id)
+director_data$label <- factor(director_data$label)
+```
+
+Code for tabulating meaning-label associations per block per pair.
+```{r}
+tabulate_pair <- function(all_data,id,print_output=FALSE) {
+  this_pair_data <- subset(all_data,pair_id==id)
+  this_pair_data$label <- droplevels(this_pair_data$label) #drop unused labels
+  this_pair_max_association_table <- data.frame()
+  if (print_output) {print(paste(id,unique(this_pair_data$condition)))}
+  
+  for (b in unique(all_data$block_n)) {
+    this_block_associations <- subset(this_pair_data,block_n==b)
+    this_block_associations$key_feature <- droplevels(this_block_associations$key_feature) #drop unused features
+    this_block_associations_xtab <- xtabs(data=this_block_associations,~key_feature+label)
+  if (print_output) {
+    print(paste("block",b,"colour-shape associations"))
+    print(this_block_associations_xtab)}
+    #find max association per row in each block and add to this_pair_max_association_table
+    for (r in 1:nrow(this_block_associations_xtab)) {
+      this_row_label <- rownames(this_block_associations_xtab)[r]
+      this_max_col <- nnet::which.is.max(this_block_associations_xtab[r,]) #breaks ties at random
+      this_max_label <- colnames(this_block_associations_xtab)[this_max_col]
+      this_pair_max_association_table <- rbind(this_pair_max_association_table,
+                                    data.frame("pair_id"=id,
+                                               "block_n"=b,
+                                               "key_feature"=this_row_label,
+                                                "max_label"=this_max_label))
+    }
+  }
+  this_pair_max_association_table
+}
+
+```
+
+Compile a dataframe of maximal associations at each block - we can use this to score each production as predicted or not.
+
+```{r}
+max_associations_df <- do.call(rbind, lapply(unique(director_data$pair_id), function(p) tabulate_pair(director_data,p)))
+```
+
+Now update the director_data dataframe, predicted column.  
+
+```{r}
+director_data$predicted <- mapply(function(pair,block,obj,l) {
+  if (block==1) {predicted=NA} #no predictions for block 1
+  else {
+    key <- get_key_feature(obj) #key feature of object being labelled - need to convert this to relevant key feature at previous block
+    if (key=="city") {shifted_key = "grey"} #city -> grey at previous block
+    else if (key=="sad") {shifted_key = "grey"} #sad -> city at earlier block
+    else if (key=="pig") {shifted_key = "pink"}
+    else if (key=="inlove") {shifted_key = "pink"}
+    else if (key=="volcano") {shifted_key = "red"}
+    else if (key=="angry") {shifted_key = "red"}
+    else if (key=="banana") {shifted_key = "yellow"}
+    else if (key=="happy") {shifted_key = "yellow"}
+    else {shifted_key=key} #this will catch colour->colour
+    #for blocks 2-4, can predict based on the preceeding block
+    if (block %in% c(2,3,4)) {
+      predicted_label <- subset(max_associations_df,pair_id==pair & block_n==block-1 & key_feature==shifted_key)$max_label
+    }
+    #for block 5, which is emotions, need to go 2 back, to the last coloured shapes block
+    if (block==5) {
+      predicted_label <- subset(max_associations_df,pair_id==pair & block_n==block-2 & key_feature==shifted_key)$max_label
+    }
+    if (predicted_label==l) {predicted=1}
+    else {predicted=0}
+   
+    predicted
+}},
+  director_data$pair_id,
+director_data$block_n,
+director_data$object,
+director_data$label)
+```
+
+Save the resulting data frame to avoid recalculating for analysis comparing Experiments 1 and 2.
+```{r}
+write.csv(director_data,file="data/exp1_predicted_extension_data.csv",row.names=FALSE)
+```
+
+
+```{r}
+pair_means_per_block_predicted <- aggregate(data=director_data,predicted~block_n+condition+pair_id,FUN=mean)
+#need block_n as a factor for the dotplot
+pair_means_per_block_predicted$block_n_as_factor <- factor(pair_means_per_block_predicted$block_n)
+
+pair_means_per_block_predicted$named_condition <- plyr::revalue(pair_means_per_block_predicted$condition,
+                                              c("fixed_associations"="Fixed Associations",
+                                                "random_associations"="Random Associations"))
+
+pair_means_per_block_predicted$named_block_n <- plyr::revalue(pair_means_per_block_predicted$block_n_as_factor,
+                                              c("0"="White Shapes",
+                                                "1"="Shapes",
+                                                "2"="Shapes to\nColoured Splats",
+                                                "3"="Coloured Splats to\nColoured Shapes",
+                                                "4"="Coloured Splats to\nObjects",
+                                                "5"="Coloured Splats to\nEmotions"))
+
+```
+
+And plot. 
+```{r, echo=FALSE}
+
+ggplot(data=pair_means_per_block_predicted) +
+  facet_grid(~named_condition) +
+  stat_summary(aes(x=named_block_n, y=predicted),geom='point', fun='mean', colour='black',fill='black',size=2, shape=23) +
+  stat_summary(aes(x=named_block_n, y=predicted),geom='errorbar', fun.data='mean_cl_boot',fun.min="min", fun.max="max",width=0.2) +
+  geom_dotplot(aes(x=named_block_n, y=predicted, fill=condition),binaxis='y',stackdir="center",
+               binpositions='all', dotsize=0.6,alpha=0.5) +
+  theme_bw() +
+  scale_fill_manual(values=my.colours) +
+  theme(legend.position = "none") +
+  theme(axis.title.x = element_blank()) +
+  ylab("Proportion of extensions as predicted") +
+  theme(axis.text.x = element_text(angle=30, hjust=1))
+
+ggsave("figures/exp1_block_to_block_extend_as_predicted.pdf", width=6, height=4)
+```
+
+Stats - first, dummy-coded model to show an expected difference in extension from Shapes to coloured splats.
+
+```{r}
+director_data_2onwards <- subset(director_data, block_n >= 2)
+director_data_2onwards$block_n_factor <- as.factor(director_data_2onwards$block_n)
+director_data_2onwards$condition_factor <- as.factor(director_data_2onwards$condition)
+contrasts(director_data_2onwards$condition_factor) <- contr.sum(2)
+
+predicted_model_2onwards <-  glmer(predicted~block_n_factor*condition_factor + (1 + block_n_factor | pair_id),family="binomial",data=director_data_2onwards,control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+summary(predicted_model_2onwards)
+```
+
+
+Next, dummy-coded model to show no difference between conditions at block 3. 
+
+```{r}
+director_data_3onwards <- subset(director_data, block_n >= 3)
+#director_data_3onwards$blocks <- droplevels(director_data_3onwards$blocks)
+director_data_3onwards$block_n_factor <- as.factor(director_data_3onwards$block_n)
+director_data_3onwards$condition_factor <- as.factor(director_data_3onwards$condition)
+contrasts(director_data_3onwards$condition_factor) <- contr.sum(2)
+
+predicted_model_dummy <-  glmer(predicted~block_n_factor*condition_factor + (1 + block_n_factor | pair_id),family="binomial",data=director_data_3onwards,control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+summary(predicted_model_dummy)
+```
+
+Then, successive-differences model to show change over time - NB slightly slower decline from Coloured Shapes to Objects in fixed (marginal), but then they both end up n the same place.
+```{r}
+director_data_3onwards$block_n_sdif <- director_data_3onwards$block_n_factor
+contrasts(director_data_3onwards$block_n_sdif) <- MASS::contr.sdif(3)
+
+predicted_model_sdif <-  glmer(predicted~block_n_sdif*condition_factor + (1 + block_n_sdif | pair_id),family="binomial",data=director_data_3onwards,control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+summary(predicted_model_sdif)
+```
+
+
+## Block-to-block distances in association matrices using KL-divergence 
+
+Including this for completeness.
+
+For each participant in block 1 we can construct a matrix of probabilities giving the probability (frequency) with which a given target colour and signal shape co-occurred - e.g. on what proportion of trials did they send a square to communicate about a grey target? In block 1, these probabilities are determined by us - assuming they are behaving sensibly and just labelling the shape they see, this just tells us how often e.g. the target squares were grey etc. For the random associations the matrix should be more uniformly filled, since any target shape can be any colour and is therefore likely to be signalled with all shapes roughly equally frequently.
+
+In block 2, where they label splats, we can perform the same operation and get out a similar matrix - e.g. if they were using the same set of colour-shape associations at block 2, the matrices would be similar; if they were doing something completely different we'd get quite different probabilities.
+
+We can flatten these matrices to a single probability distribution and use KL-divergence to measure the distance between the matrices at successive blocks - we use entropy::KL.Dirichlet(block n+1,block n) on the basis that this captures the "the expected excess surprise from using block n as a model when the actual distribution is block n+1." (https://en.wikipedia.org/wiki/Kullback–Leibler_divergence)
+
+This isn't quite what we want, because two random mappings will tend to be more similar to each other than two non-random mappings, so we have to control for that - we can do that using a permutation test, where we say "what would the distribution of distance scores look like if we shuffled one of these matrices?", then convert the *actual* distance score into a z-score based on this distribution. Distance z-scores of around 0 mean that two matrices are no more similar than you would expect by chance, and negative distance z scores mean they are more similar (i.e. lower distance) than you would expect by chance. Then we can just plot those scores, comparing block 1 to block 2, block 2 to block 3, etc. 
+
+Code for this matrix distance z-scoring.
+```{r}
+#prior in the dirichlet prior for the KL-divergence calculation
+kl_dirichlet_prior = 1
+
+#a will be block n, b will be block n+1, these are reversed in the entropy::KL.Dirichlet call
+distribution_distance_z <- function(a,b) {
+    veridical_kl_divergence <- entropy::KL.Dirichlet(b,a,a1=kl_dirichlet_prior,a2=kl_dirichlet_prior)
+    msample <- c()
+    perms <- gtools::permutations(4,4)
+    for (perm_i in 2:nrow(perms)) {#skip original 'permutation', which is not a permutation
+      this_perm <- perms[perm_i,]
+      this_divergence <- entropy::KL.Dirichlet(b[,this_perm],a,a1=kl_dirichlet_prior,a2=kl_dirichlet_prior)
+      msample <- c(msample,this_divergence)
+    }
+    c=0
+    for (i in 1:length(msample)) {
+      if(msample[i]>=veridical_kl_divergence) c=c+1
+    }
+    
+    return(list(mean=mean(msample),sd=sd(msample),veridical=veridical_kl_divergence,p=c/length(msample),z=(veridical_kl_divergence-mean(msample))/sd(msample)))
+}
+  
+```
+
+
+Code for tabulating and calculating distances per pair.
+```{r}
+tabulate_pair_kl <- function(all_data,id,print_output=FALSE) {
+  this_pair_data <- subset(all_data,pair_id==id)
+  this_pair_data$label <- droplevels(this_pair_data$label) #drop unused labels
+  this_pair_matrices <- list()
+  if (print_output) {print(paste(id,unique(this_pair_data$condition)))}
+  
+  for (b in unique(all_data$block_n)) {
+    this_block_associations <- subset(this_pair_data,block_n==b)
+    this_block_associations$key_feature <- droplevels(this_block_associations$key_feature) #drop unused features
+    this_block_associations_xtab <- xtabs(data=this_block_associations,~key_feature+label)
+  if (print_output) {
+    print(paste("block",b,"colour-shape associations"))
+    print(this_block_associations_xtab)}
+  this_block_associations_matrix <- matrix(this_block_associations_xtab,
+                                            dim(this_block_associations_xtab))
+  this_pair_matrices[[b]] <- this_block_associations_matrix
+  }
+  #now we have all the block matrices we can compare
+  block_1_2_dist <- distribution_distance_z(this_pair_matrices[[1]],this_pair_matrices[[2]])$z
+  block_2_3_dist <- distribution_distance_z(this_pair_matrices[[2]],this_pair_matrices[[3]])$z
+  block_3_4_dist <- distribution_distance_z(this_pair_matrices[[3]],this_pair_matrices[[4]])$z
+  block_3_5_dist <- distribution_distance_z(this_pair_matrices[[3]],this_pair_matrices[[5]])$z
+  
+  
+  
+  this_dist_data <- data.frame("pair_id"=id,
+                                 "condition"=unique(this_pair_data$condition),
+                                 "blocks"=c("1-2","2-3","3-4","3-5"),
+                                 "distance"=c(block_1_2_dist,block_2_3_dist,block_3_4_dist,block_3_5_dist)
+  )
+  this_dist_data
+  
+}
+
+```
+
+Finally, calculate the distances and compile into a dataframe called block_to_block_distances.
+```{r}
+block_to_block_distances <- do.call(rbind, lapply(unique(director_data$pair_id), function(p) tabulate_pair_kl(director_data,p)))
+```
+
+And plot. 
+```{r, echo=FALSE}
+#add columns with nicely-formatted names
+block_to_block_distances$named_blocks <- plyr::revalue(block_to_block_distances$blocks,
+                                              c("1-2"="Shapes to\nColoured Splats",
+                                                "2-3"="Coloured Splats to\nColoured Shapes",
+                                                "3-4"="Coloured Shapes to\nObjects",
+                                                "3-5"="Coloured Shapes to\nEmotions"))
+
+block_to_block_distances$named_condition <- plyr::revalue(block_to_block_distances$condition,
+                                              c("fixed_associations"="Fixed Associations",
+                                                "random_associations"="Random Associations"))
+
+ggplot(data=block_to_block_distances) +
+  facet_grid(~named_condition) +
+  stat_summary(aes(x=named_blocks, y=distance),geom='point', fun='mean', colour='black',fill='black',size=2, shape=23) +
+  stat_summary(aes(x=named_blocks, y=distance),geom='errorbar', fun.data='mean_cl_boot',fun.min="min", fun.max="max",width=0.2) +
+  geom_dotplot(aes(x=named_blocks, y=distance, fill=condition),binaxis='y',stackdir="center",
+               binpositions='all', dotsize=0.6,alpha=0.5) +
+  theme_bw() +
+  scale_fill_manual(values=my.colours) +
+  theme(legend.position = "none") +
+  theme(axis.title.x = element_blank()) +
+  ylab("Block-to-block difference (z-score)") +
+  theme(axis.text.x = element_text(angle=30, hjust=1))
+
+
+ggsave("figures/exp1_block_to_block_difference.pdf", width=6, height=4)
+```
+
+Stats - first, dummy-coded model to show no difference between conditions at block 3. 
+
+```{r}
+block_to_block_distances_3onwards <- subset(block_to_block_distances, blocks != "1-2")
+block_to_block_distances_3onwards$blocks <- factor(block_to_block_distances_3onwards$blocks)
+block_to_block_distances_3onwards$blocks <- droplevels(block_to_block_distances_3onwards$blocks)
+
+
+block_to_block_distances_model_dummy <-  lmerTest::lmer(distance~blocks*condition + (1 | pair_id),data=block_to_block_distances_3onwards,control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+summary(block_to_block_distances_model_dummy)
+```
+
+Then, successive-differences model to show change over time.
+```{r}
+block_to_block_distances_3onwards$blocks_sdif <- block_to_block_distances_3onwards$blocks
+block_to_block_distances_3onwards$blocks_sdif <- factor(block_to_block_distances_3onwards$blocks_sdif)
+block_to_block_distances_3onwards$condition <- factor(block_to_block_distances_3onwards$condition)
+
+contrasts(block_to_block_distances_3onwards$blocks_sdif) <- MASS::contr.sdif(3)
+contrasts(block_to_block_distances_3onwards$condition) <- contr.sum(2)
+
+block_to_block_distances_model_sdif <-  lmerTest::lmer(distance~blocks_sdif*condition + (1 | pair_id),data=block_to_block_distances_3onwards,control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+summary(block_to_block_distances_model_sdif)
+```
+
+
+## Non-arbitrariness of colour-shape correspondences in the arbitrary condition
+
+One final question here is: how are the people in the random associations condition doing it in block 2 (splats, where they suddenly have to start talking about colour) - are they coming up with something arbitrary, or are there certain associations between colour and shape we were not anticipating?
+
+Probably the simplest way to do this is just to generate a big association table and look for non-uniformity.
+
+This actually reveals some obvious ones: star=yellow, cross=red.
+
+```{r}
+random_block2_associations_data <- subset(director_data,block_n==2 & condition=='random_associations')
+random_block2_associations_xtab <- xtabs(data=random_block2_associations_data,~key_feature+label,drop.unused.levels=TRUE)
+random_block2_associations_xtab
+chisq.test(random_block2_associations_xtab)
+```
+
+Do we still get an association if we remove star and cross? Yes we do, e.g. grey and red go with circle and square, pink maybe goes with diamond, etc.
+
+```{r}
+random_block2_associations_nostarcross_xtab <- xtabs(data=subset(random_block2_associations_data, !(label %in% c('star','cross'))),~key_feature+label,drop.unused.levels=TRUE)
+random_block2_associations_nostarcross_xtab
+chisq.test(random_block2_associations_nostarcross_xtab)
+```
+
+Are there any colours which *don't* have a preference? Maybe only pink, which is only marginally different from uniform.
+```{r}
+for (colour in c("grey","pink","red","yellow")) {
+  random_block2_associations_for_this <- xtabs(data=subset(random_block2_associations_data, key_feature==colour),~key_feature+label,drop.unused.levels=TRUE)
+  print(random_block2_associations_for_this)
+  print(chisq.test(random_block2_associations_for_this)$p.value)
+}
+```
+
+Worth doing this in block 3 as well - block 2 will capture the early try-anything stages of convention formation, block 3 (talking about shapes) should show us the settled systems (which could show these preferences more clearly, or get rid of the initial panicked iconic efforts). Picture looks the same - even pink is significant at this point, although possibly due to avoiding star, circle and square.
+
+```{r}
+random_block3_associations_data <- subset(director_data,block_n==3 & condition=='random_associations')
+random_block3_associations_xtab <- xtabs(data=random_block3_associations_data,~key_feature+label,drop.unused.levels=TRUE)
+random_block3_associations_xtab
+chisq.test(random_block3_associations_xtab)
+```
+
+```{r}
+for (colour in c("grey","pink","red","yellow")) {
+  random_block3_associations_for_this <- xtabs(data=subset(random_block3_associations_data, key_feature==colour),~key_feature+label,drop.unused.levels=TRUE)
+  print(random_block3_associations_for_this)
+  print(chisq.test(random_block3_associations_for_this)$p.value)
+}
+```
+
+I also wonder if we can see anything in block 5 (in the fixed condition in particular) - is there some shape-emotion correspondence messing with the colour-shape stuff? Nothing that massively jumps out, although you can see the signature of the same shape-colour correspondences we see in the random condition.
+
+```{r}
+fixed_block5_associations_data <- subset(director_data,block_n==5 & condition=="fixed_associations")
+fixed_block5_associations_data <- xtabs(data=fixed_block5_associations_data,~key_feature+label,drop.unused.levels=TRUE)
+fixed_block5_associations_data
+chisq.test(fixed_block5_associations_data)
+```
+
+For reference, here's what the block 2 associations look like in the fixed associations condition - you can see that they are influenced by the same colour-shape associations as the guys in random, so they are using the statistical associations we give them (that's what the z-scores show) but *also* the iconic stuff like red=cross, yellow=star.
+```{r}
+fixed_block2_associations_data <- subset(director_data,block_n==2 & condition=="fixed_associations")
+fixed_block2_associations_data <- xtabs(data=fixed_block2_associations_data,~key_feature+label,drop.unused.levels=TRUE)
+fixed_block2_associations_data
+chisq.test(fixed_block2_associations_data)
+```
+
+# Citation info
+
+Main packages cited in the paper.
+
+```{r}
+citation()
+citation("ggplot2")
+citation("lme4")
+citation("MASS")
+```
+
+
+For the KL-divergence analysis we also use entropy and gtools (for permutations).
+```{r}
+citation("entropy")
+citation("gtools")
+```
+

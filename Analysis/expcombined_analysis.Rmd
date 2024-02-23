@@ -1,0 +1,145 @@
+---
+title: "Combined Exp 1-2 analysis"
+author: "Kenny Smith"
+date: "19/12/2023"
+output: html_document
+---
+
+In the combined analysis, we just want to compare performance at the Coloured Splats block, to test whether the Experiment 2 manipulation of remapping shapes between participants affected performance.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lme4) #for stats
+library(ggplot2) #for plots
+my.colours <- c("#006DE9","#EA7D00")
+```
+
+
+
+# Success analysis
+
+## Data loading etc
+
+Read in data for communicative success.
+```{r}
+exp1_data <- read.csv("data/exp1_data_anonymised.csv")
+
+#for success analysis we only want matcher data from block 2 (Coloured Splats)
+exp1_data <- subset(exp1_data,exp_trial_type=='matcher' & block_n==2)
+
+#select required columns to make merging dataframes easier
+exp1_data <- exp1_data[,c("participant_id","pair_id","score","condition")]
+#add column giving experiment, and also make participant IDs and pair IDs unique
+exp1_data$experiment <- "Experiment 1"
+exp1_data$participant_id <- paste("exp1_",exp1_data$participant_id,sep="")
+exp1_data$pair_id <- paste("exp1_",exp1_data$pair_id,sep="")
+
+exp2_data <- read.csv("data/exp2_data_anonymised.csv")
+exp2_data <- subset(exp2_data,exp_trial_type=='matcher' & block_n==2)
+exp2_data <- exp2_data[,c("participant_id","pair_id","score","condition")]
+exp2_data$experiment <- "Experiment 2"
+exp2_data$participant_id <- paste("exp2_",exp2_data$participant_id,sep="")
+exp2_data$pair_id <- paste("exp2_",exp2_data$pair_id,sep="")
+
+combined_matcher_data <- rbind(exp1_data,exp2_data)
+```
+
+## Plot for sanity-check
+
+```{r, echo=FALSE}
+success_pair_means_per_block <- aggregate(data=combined_matcher_data,score~experiment+condition+pair_id,FUN=mean)
+
+
+
+ggplot(data=success_pair_means_per_block) +
+  facet_grid(~condition) +
+  stat_summary(aes(x=experiment, y=score),geom='point', fun='mean', colour='black',fill='black',size=2, shape=23) +
+  stat_summary(aes(x=experiment, y=score),geom='errorbar', fun.data='mean_cl_boot',fun.min="min", fun.max="max",width=0.2) +
+  geom_dotplot(aes(x=experiment, y=score, fill=condition),binaxis='y',stackdir="center", binwidth = .025, binpositions='all', dotsize=0.5, alpha=0.5) +
+  scale_fill_manual(values=my.colours) +
+  theme(legend.position = "none") +
+  theme(axis.title.x = element_blank()) +
+  ylab("Proportion of succesful trials")
+```
+
+
+## Key stat 
+
+Are there effects of experiment on score? No.
+
+```{r}
+combined_matcher_data$experiment_factor <- as.factor(combined_matcher_data$experiment)
+combined_matcher_data$condition_factor <- as.factor(combined_matcher_data$condition)
+contrasts(combined_matcher_data$condition_factor) <- contr.sum(2) #fixed associations = +1
+contrasts(combined_matcher_data$experiment_factor) <- -contr.sum(2) #experiment2 = +1
+```
+
+```{r}
+combined_score_model <- glmer(score~experiment_factor*condition_factor + (1 | pair_id),data=combined_matcher_data,family='binomial',control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+
+summary(combined_score_model)
+```
+
+# Predicted extension analysis
+
+## Data loading etc
+
+Read in data for predicted extension.
+
+```{r}
+exp1_extension_data <- read.csv("data/exp1_predicted_extension_data.csv")
+
+#for extension analysis we only want data from block 2 (Coloured Splats)
+exp1_extension_data <- subset(exp1_extension_data,block_n==2)
+
+#select required columns to make merging dataframes easier
+exp1_extension_data <- exp1_extension_data[,c("participant_id","pair_id","predicted","condition")]
+#add column giving experiment, and also make participant IDs and pair IDs unique
+exp1_extension_data$experiment <- "Experiment 1"
+exp1_extension_data$participant_id <- paste("exp1_",exp1_extension_data$participant_id,sep="")
+exp1_extension_data$pair_id <- paste("exp1_",exp1_extension_data$pair_id,sep="")
+
+exp2_extension_data <- read.csv("data/exp2_predicted_extension_data.csv")
+exp2_extension_data <- subset(exp2_extension_data,block_n==2)
+exp2_extension_data <- exp2_extension_data[,c("participant_id","pair_id","predicted","condition")]
+exp2_extension_data$experiment <- "Experiment 2"
+exp2_extension_data$participant_id <- paste("exp2_",exp2_extension_data$participant_id,sep="")
+exp2_extension_data$pair_id <- paste("exp2_",exp2_extension_data$pair_id,sep="")
+
+combined_extension_data <- rbind(exp1_extension_data,exp2_extension_data)
+```
+
+## Plot for sanity-check
+
+```{r, echo=FALSE}
+extension_pair_means_per_block <- aggregate(data=combined_extension_data,predicted~experiment+condition+pair_id,FUN=mean)
+
+ggplot(data=extension_pair_means_per_block) +
+  facet_grid(~condition) +
+  stat_summary(aes(x=experiment, y=predicted),geom='point', fun='mean', colour='black',fill='black',size=2, shape=23) +
+  stat_summary(aes(x=experiment, y=predicted),geom='errorbar', fun.data='mean_cl_boot',fun.min="min", fun.max="max",width=0.2) +
+  geom_dotplot(aes(x=experiment, y=predicted, fill=condition),binaxis='y',stackdir="center", binwidth = .025, binpositions='all', dotsize=0.5, alpha=0.5) +
+  scale_fill_manual(values=my.colours) +
+  theme(legend.position = "none") +
+  theme(axis.title.x = element_blank()) +
+  ylab("Proportion ofpredicted extensions")
+```
+
+
+## Key stat 
+
+Are there effects of experiment on predicted extension? No.
+
+```{r}
+combined_extension_data$experiment_factor <- as.factor(combined_extension_data$experiment)
+combined_extension_data$condition_factor <- as.factor(combined_extension_data$condition)
+contrasts(combined_extension_data$condition_factor) <- contr.sum(2) #fixed associations = +1
+contrasts(combined_extension_data$experiment_factor) <- -contr.sum(2) #experiment2 = +1
+```
+
+```{r}
+combined_extension_model <- glmer(predicted~experiment_factor*condition_factor + (1 | pair_id),data=combined_extension_data,family='binomial',control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=100000)))
+
+summary(combined_extension_model)
+```
+
